@@ -107,4 +107,4 @@ def collect_process_metrics():
             continue
     return metrics
 
-print(collect_process_metrics())
+# print(collect_process_metrics())
