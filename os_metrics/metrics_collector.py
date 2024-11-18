@@ -82,7 +82,7 @@ def collect_system_metrics():
     }
     return metrics
 
-def collect_process_metrics():
+def collect_process_metrics_X():
     """
     Collecte les métriques des processus actifs.
     """
@@ -107,4 +107,48 @@ def collect_process_metrics():
             continue
     return metrics
 
-# print(collect_process_metrics())
+
+def collect_process_metrics():
+    """
+    Collecte des métriques détaillées pour chaque processus actif :
+    - Utilisation du processeur
+    - Utilisation de la mémoire
+    - Entrées/sorties disque
+    - Entrées/sorties réseau
+    """
+    metrics = []
+    
+    for proc in psutil.process_iter(attrs=['pid', 'name', 'username']):
+        try:
+            # Informations de base sur le processus
+            process_info = {
+                "pid": proc.info['pid'],
+                "name": proc.info['name'],
+                "username": proc.info['username'],
+                "cpu_percent": proc.cpu_percent(interval=0.1),  # CPU usage
+                "memory_percent": proc.memory_percent(),      # Memory usage (%)
+                "rss_memory": proc.memory_info().rss,         # Memory in bytes (Resident Set Size)
+                "vms_memory": proc.memory_info().vms,         # Virtual memory size
+                "threads": proc.num_threads(),                # Number of threads
+                "status": proc.status(),                      # Process status
+                "create_time": proc.create_time(),            # Process creation time
+            }
+
+            # Ajouter les métriques disque
+            if proc.io_counters():
+                io_counters = proc.io_counters()
+                process_info.update({
+                    "read_bytes": io_counters.read_bytes,   # Bytes read from disk
+                    "write_bytes": io_counters.write_bytes # Bytes written to disk
+                })
+
+
+            metrics.append(process_info)
+        
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            # Ignorer les processus qui ne peuvent pas être accédés
+            continue
+
+    return metrics
+
+# print(collect_detailed_process_metrics())

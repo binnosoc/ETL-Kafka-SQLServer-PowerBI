@@ -1,6 +1,7 @@
 import json
 import pyodbc
 from confluent_kafka import Consumer
+from datetime import datetime
 
 # Configuration Kafka et Base de données
 KAFKA_BROKER = "localhost:9092"
@@ -103,7 +104,7 @@ def consume_and_load_system():
         cpu_percent FLOAT,
         memory_percent FLOAT,
         disk_usage_percent FLOAT,
-        timestamp FLOAT
+        timestamp DATETIME  
     )
     """
     )
@@ -130,7 +131,7 @@ def consume_and_load_system():
                 data["cpu_percent"],
                 data["memory_percent"],
                 data["disk_usage_percent"],
-                data["timestamp"],
+                datetime.fromtimestamp(data["timestamp"]),
             )
             conn.commit()
     except KeyboardInterrupt:
@@ -140,7 +141,7 @@ def consume_and_load_system():
         conn.close()
         consumer.close()
         
-def consume_and_load_process():
+def consume_and_load_process0():
     global consumer, conn
     """
     Consomme les messages Kafka pour les métriques des processus et les insère dans une base de données SQL Server.
@@ -167,7 +168,7 @@ def consume_and_load_process():
             vms_memory BIGINT,
             threads INT,
             status NVARCHAR(50),
-            create_time FLOAT,
+            create_time DATETIME,
             timestamp DATETIME DEFAULT GETDATE()
         )
         """
@@ -203,7 +204,8 @@ def consume_and_load_process():
                     entry["vms_memory"],
                     entry["threads"],
                     entry["status"],
-                    entry["create_time"]
+                    datetime.fromtimestamp(entry["create_time"])
+                    
                 )
             
             conn.commit()
@@ -213,3 +215,102 @@ def consume_and_load_process():
         cursor.close()
         conn.close()
         consumer.close()         
+
+
+def consume_and_load_process():
+    global consumer, conn
+    """
+    Consomme les messages Kafka pour les métriques des processus et les insère dans une base de données SQL Server.
+    """
+
+    consumer.subscribe([TOPIC_PROCESS])
+    
+    cursor = conn.cursor()
+
+    # Supprimer la table si elle existe
+    cursor.execute("IF OBJECT_ID('dbo.ProcessMetrics', 'U') IS NOT NULL DROP TABLE dbo.ProcessMetrics")
+    conn.commit()
+
+    # Créer à nouveau la table
+    cursor.execute(
+        """
+        CREATE TABLE ProcessMetrics (
+            id INT IDENTITY(1,1) PRIMARY KEY,
+            pid INT,
+            name NVARCHAR(255),
+            username NVARCHAR(255),
+            cpu_percent FLOAT,
+            memory_percent FLOAT,
+            rss_memory BIGINT,
+            vms_memory BIGINT,
+            threads INT,
+            status NVARCHAR(50),
+            create_time DATETIME  ,
+            timestamp DATETIME DEFAULT GETDATE()
+        )
+        """
+    )
+    conn.commit()
+
+    try:
+        while True:
+            msg = consumer.poll(5.0)  # Attendre un message pendant 5 secondes
+            if msg is None:
+                continue
+            if msg.error():
+                print(f"Consumer error: {msg.error()}")
+                continue
+
+            # Charger les données JSON
+            try:
+                data = json.loads(msg.value().decode("utf-8"))
+                print(f"Consumed: {data}")
+            except json.JSONDecodeError as e:
+                print(f"JSON decode error: {e}")
+                continue
+
+            # Vérifier si data est une liste
+            if not isinstance(data, list):
+                print(f"Unexpected data format: {data}")
+                continue
+
+            # Préparer les valeurs pour insertion en batch
+            values = [
+                (
+                    entry["pid"],
+                    entry["name"],
+                    entry["username"] if entry["username"] else None,  # Gérer le cas où username est None
+                    entry["cpu_percent"],
+                    entry["memory_percent"],
+                    entry["rss_memory"],
+                    entry["vms_memory"],
+                    entry["threads"],
+                    entry["status"],
+                    datetime.fromtimestamp(entry["create_time"])
+                )
+                for entry in data
+            ]
+
+            # Insertion batch
+            try:
+                cursor.executemany(
+                    """
+                    INSERT INTO ProcessMetrics (pid, name, username, cpu_percent, memory_percent, rss_memory, 
+                    vms_memory, threads, status, create_time)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    values
+                )
+                conn.commit()
+            except Exception as e:
+                print(f"Database error during batch insert: {e}")
+                conn.rollback()
+    except KeyboardInterrupt:
+        print("Consumer stopped.")
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+    finally:
+        cursor.close()
+        conn.close()
+        consumer.close()
+

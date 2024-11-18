@@ -33,7 +33,7 @@ def produce_metrics_system():
 
 def produce_metrics_wifi():
     """
-    Produit les messages dans Kafka en collectant les métriques WI-FI toutes les 5 secondes.
+    Produit les messages dans Kafka en collectant les métriques WI-FI toutes les 10 secondes.
     """
     producer = Producer({'bootstrap.servers': KAFKA_BROKER})
     
@@ -70,6 +70,6 @@ def produce_metrics_process():
             except Exception as e:
                 print(f"Process: Error producing message: {e}")
             
-            time.sleep(60)  # Envoi toutes les 60 secondes
+            time.sleep(10)  # Envoi toutes les 10 secondes
     except KeyboardInterrupt:
         print("Producer stopped.")
